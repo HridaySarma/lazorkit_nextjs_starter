@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { useWallet } from '@lazorkit/wallet';
-import { Transaction, PublicKey } from '@solana/web3.js';
+import { PublicKey } from '@solana/web3.js';
 import { createTransferInstruction, getAssociatedTokenAddress } from '@solana/spl-token';
 import { validateSolanaAddress, getExplorerUrl, formatBalance } from '@/lib/solana';
 import { validateTransfer, mapSDKError } from '@/lib/lazorkit';
@@ -155,11 +155,15 @@ export function GaslessTransfer({ usdcBalance, onTransferComplete }: GaslessTran
         )
       );
 
-      // Create transaction with all instructions
-      const transaction = new Transaction().add(...instructions);
-
-      // SDK handles signing with passkey + gasless submission via paymaster
-      const signature = await signAndSendTransaction(transaction);
+      // Use Lazorkit SDK's signAndSendTransaction with gasless options
+      // Per SDK docs: pass instructions and transactionOptions for paymaster
+      const signature = await signAndSendTransaction({
+        instructions,
+        transactionOptions: {
+          feeToken: 'USDC', // Use USDC for fee payment via paymaster
+          computeUnitLimit: 200_000, // Set compute budget
+        },
+      });
 
       setTxSignature(signature);
       setTransferState('success');
