@@ -6,6 +6,16 @@ const nextConfig = {
   // Configure for Vercel deployment
   // No additional configuration needed for standard Vercel deployment
 
+  // Proxy configuration to bypass CORS during development
+  async rewrites() {
+    return [
+      {
+        source: '/api/paymaster/:path*',
+        destination: 'https://lazorkit-paymaster.onrender.com/:path*',
+      },
+    ];
+  },
+
   // Webpack configuration for Solana web3.js compatibility
   webpack: (config) => {
     config.resolve.fallback = {

@@ -36,7 +36,7 @@ vi.mock('@/lib/solana', () => ({
 const mockShowSuccess = vi.fn();
 const mockShowError = vi.fn();
 
-vi.mock('./ToastProvider', () => ({
+vi.mock('../ToastProvider', () => ({
   useToast: () => ({
     showSuccess: mockShowSuccess,
     showError: mockShowError,

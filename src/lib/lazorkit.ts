@@ -123,10 +123,11 @@ function mapError(error: unknown): AuthError {
 
   // NETWORK_ERROR: Network-related errors
   // Retry may help if it's a temporary connection issue
-  if (message.includes('network') || message.includes('fetch') || message.includes('timeout')) {
+  if (message.includes('network') || message.includes('fetch') || message.includes('timeout') || 
+      message.includes('service unavailable') || message.includes('503') || message.includes('failed to get payer')) {
     return createAuthError(
       'NETWORK_ERROR',
-      'Network error. Please check your connection and try again.',
+      'The Lazorkit paymaster service is currently unavailable. Please try again in a few minutes.',
       err
     );
   }

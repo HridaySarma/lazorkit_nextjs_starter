@@ -18,12 +18,15 @@ This tutorial explains how to implement gasless USDC transfers using the Lazorki
 
 Traditional Solana transactions require the sender to pay gas fees in SOL. This creates friction for new users who need to acquire SOL before they can use their wallet.
 
-Gasless transactions solve this by using a **Paymaster** - a service that sponsors transaction fees on behalf of users. With Lazorkit:
+Gasless transactions solve this by using a **Paymaster** - a service that sponsors transaction fees on behalf of users. With the Lazorkit SDK:
 
 - Users send USDC without holding any SOL
 - The Paymaster covers network fees
-- Transactions are signed using the user's passkey
+- Transactions are signed using the user's passkey with **real biometric prompts**
+- The SDK's `signAndSendTransaction()` method handles everything automatically
 - The experience feels like a traditional payment app
+
+**Important**: This tutorial covers the **real Lazorkit SDK integration** using `@lazorkit/wallet` v2.0.0+, which triggers actual biometric prompts for transaction signing.
 
 ## How Gasless Transactions Work
 
@@ -99,92 +102,66 @@ Lazorkit creates **smart wallets** - programmable account contracts that enable 
 
 ## Implementing the Transfer Function
 
-### Step 1: Create the Transfer Wrapper
+### Step 1: Understanding the SDK Method
 
-Add the transfer function to `src/lib/lazorkit.ts`:
+With the Lazorkit SDK, you don't need to create a wrapper function. The `useWallet()` hook provides `signAndSendTransaction()` which:
+
+1. Creates the transaction with your instructions
+2. **Triggers a biometric prompt** for the user to authorize
+3. Signs the transaction with the passkey credential
+4. Submits to the Paymaster for gasless execution
+5. Returns the transaction signature
+
+Here's how it works in a component:
 
 ```typescript
-import type { WalletSession, AuthError } from '@/types';
-import { PublicKey } from '@solana/web3.js';
+import { useWallet } from '@lazorkit/wallet';
+import { Transaction, SystemProgram, PublicKey } from '@solana/web3.js';
 
-/**
- * Parameters for a gasless USDC transfer.
- */
-export interface GaslessTransferParams {
-  /** The sender's wallet session */
-  wallet: WalletSession;
-  /** Recipient's Solana public key address */
-  recipient: string;
-  /** Amount of USDC to transfer (human-readable, e.g., 10.50) */
-  amount: number;
-}
+function TransferComponent() {
+  const { smartWalletPubkey, signAndSendTransaction, isSigning } = useWallet();
 
-/**
- * Sends a gasless USDC transfer using the Lazorkit Paymaster.
- * 
- * This function:
- * 1. Creates a SPL token transfer instruction for USDC
- * 2. Signs the transaction using the passkey
- * 3. Submits via the Paymaster which sponsors gas fees
- * 
- * @param params - Transfer parameters
- * @returns Transaction signature
- * @throws AuthError if transfer fails
- */
-export async function sendGaslessTransfer(
-  params: GaslessTransferParams
-): Promise<string> {
-  const { wallet, recipient, amount } = params;
+  const handleTransfer = async (recipient: string, amount: number) => {
+    if (!smartWalletPubkey) return;
 
-  // Validate recipient address format
-  try {
-    new PublicKey(recipient);
-  } catch {
-    throw createAuthError(
-      'UNKNOWN',
-      'Invalid recipient address. Please check and try again.'
-    );
-  }
+    try {
+      // Create transaction with transfer instruction
+      const transaction = new Transaction().add(
+        SystemProgram.transfer({
+          fromPubkey: smartWalletPubkey,
+          toPubkey: new PublicKey(recipient),
+          lamports: amount * 1e9, // Convert SOL to lamports
+        })
+      );
 
-  // Validate amount is positive
-  if (amount <= 0) {
-    throw createAuthError(
-      'UNKNOWN',
-      'Transfer amount must be greater than zero.'
-    );
-  }
+      // SDK handles:
+      // 1. Showing biometric prompt
+      // 2. Signing with passkey
+      // 3. Submitting via Paymaster
+      const signature = await signAndSendTransaction(transaction);
 
-  try {
-    // Import Lazorkit SDK dynamically (avoids SSR issues)
-    const { useWallet } = await import('@lazorkit/wallet');
-    
-    // In a real implementation within a React component:
-    //
-    // const { signAndSendTransaction } = useWallet();
-    // 
-    // const signature = await signAndSendTransaction({
-    //   instructions: [
-    //     createTransferInstruction(
-    //       senderTokenAccount,
-    //       recipientTokenAccount,
-    //       wallet.publicKey,
-    //       amount * 1_000_000 // Convert to smallest units
-    //     )
-    //   ],
-    //   transactionOptions: {
-    //     feeToken: USDC_MINT, // Fees paid in USDC (sponsored)
-    //     clusterSimulation: 'devnet'
-    //   }
-    // });
-    
-    // Return transaction signature
-    const signature = `tx_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-    return signature;
-  } catch (error) {
-    throw mapError(error);
-  }
+      console.log('Transfer successful:', signature);
+    } catch (error) {
+      console.error('Transfer failed:', error);
+    }
+  };
+
+  return (
+    <button onClick={() => handleTransfer('recipient...', 0.1)} disabled={isSigning}>
+      {isSigning ? 'Signing...' : 'Send SOL'}
+    </button>
+  );
 }
 ```
+
+**What Happens When You Call `signAndSendTransaction()`:**
+1. SDK prepares the transaction
+2. **Your device shows a biometric prompt** (Touch ID, Face ID, etc.)
+3. You authenticate with your biometric
+4. SDK signs the transaction with your passkey
+5. SDK submits to Paymaster (which sponsors the fee)
+6. Transaction is confirmed on Solana
+7. SDK returns the transaction signature
 
 ### Step 2: Add Validation Helper
 
@@ -239,12 +216,12 @@ Create a component with form inputs, validation feedback, and confirmation modal
 'use client';
 
 import { useState, useCallback, useEffect } from 'react';
-import type { WalletSession } from '@/types';
+import { useWallet } from '@lazorkit/wallet';
+import { Transaction, SystemProgram, PublicKey } from '@solana/web3.js';
 import { validateSolanaAddress, getExplorerUrl } from '@/lib/solana';
-import { sendGaslessTransfer, validateTransfer } from '@/lib/lazorkit';
+import { validateTransfer } from '@/lib/lazorkit';
 
 interface GaslessTransferProps {
-  wallet: WalletSession;
   usdcBalance: number; // In smallest units
   onTransferComplete: () => void;
 }
@@ -257,10 +234,12 @@ type TransferState =
   | 'error';     // Transfer failed
 
 export function GaslessTransfer({ 
-  wallet, 
   usdcBalance, 
   onTransferComplete 
 }: GaslessTransferProps) {
+  // Get wallet state from SDK
+  const { smartWalletPubkey, signAndSendTransaction, isSigning } = useWallet();
+  
   const [recipient, setRecipient] = useState('');
   const [amount, setAmount] = useState('');
   const [transferState, setTransferState] = useState<TransferState>('idle');
@@ -285,6 +264,11 @@ export function GaslessTransfer({
   // ... rest of component
 }
 ```
+
+**Key Changes:**
+- Uses `useWallet()` hook instead of receiving wallet as prop
+- Gets `smartWalletPubkey` and `signAndSendTransaction` from SDK
+- Uses `isSigning` state from SDK for loading indicators
 
 ### Form Implementation
 
@@ -398,14 +382,25 @@ const ConfirmationModal = () => (
 
 ```typescript
 const executeTransfer = async () => {
+  if (!smartWalletPubkey) return;
+  
   setTransferState('processing');
 
   try {
-    const signature = await sendGaslessTransfer({
-      wallet,
-      recipient,
-      amount: parseFloat(amount),
-    });
+    // Create transaction with transfer instruction
+    const transaction = new Transaction().add(
+      SystemProgram.transfer({
+        fromPubkey: smartWalletPubkey,
+        toPubkey: new PublicKey(recipient),
+        lamports: parseFloat(amount) * 1e9, // Convert to lamports
+      })
+    );
+
+    // SDK handles:
+    // 1. Biometric prompt
+    // 2. Passkey signing
+    // 3. Paymaster submission
+    const signature = await signAndSendTransaction(transaction);
 
     setTxSignature(signature);
     setTransferState('success');
@@ -413,10 +408,21 @@ const executeTransfer = async () => {
     // Refresh balances after successful transfer
     onTransferComplete();
   } catch (err) {
+    console.error('Transfer failed:', err);
     setTransferState('error');
   }
 };
 ```
+
+**What Happens During Execution:**
+1. Transaction is created with transfer instruction
+2. `signAndSendTransaction()` is called
+3. **Biometric prompt appears on your device**
+4. You authenticate (Touch ID, Face ID, etc.)
+5. SDK signs transaction with passkey
+6. SDK submits to Paymaster for gasless execution
+7. Transaction is confirmed on Solana
+8. Signature is returned and displayed
 
 ## Input Validation
 

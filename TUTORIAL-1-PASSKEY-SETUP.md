@@ -16,12 +16,16 @@ This tutorial walks you through implementing passkey-based wallet authentication
 
 ## Overview
 
-Passkey authentication uses the WebAuthn standard to create cryptographic credentials stored securely on the user's device. When combined with Lazorkit, this enables:
+Passkey authentication uses the WebAuthn standard to create cryptographic credentials stored securely on the user's device. When combined with the Lazorkit SDK, this enables:
 
 - **Seedless wallets**: No 12/24 word phrases to manage
-- **Biometric security**: Protected by Face ID, Touch ID, or device PIN
+- **Real biometric security**: Protected by Face ID, Touch ID, Windows Hello, or fingerprint
+- **Smart wallet creation**: Program-derived addresses controlled by passkey credentials
+- **SDK-managed state**: Automatic credential persistence and session management
 - **Cross-device support**: Works on phones, tablets, and computers
 - **Phishing resistance**: Credentials are bound to the origin
+
+**Important**: This tutorial covers the **real Lazorkit SDK integration** using `@lazorkit/wallet` v2.0.0+, which triggers actual biometric prompts on your device.
 
 ## Prerequisites
 
@@ -29,10 +33,12 @@ Before starting, ensure you have:
 
 - Node.js 18.17 or later
 - A Next.js 14+ project with TypeScript
+- A device with biometric authentication (Touch ID, Face ID, Windows Hello, or fingerprint)
+- A supported browser (Chrome 67+, Safari 13+, Edge 18+, Firefox 60+)
 - The Lazorkit SDK installed:
 
 ```bash
-npm install @lazorkit/wallet @solana/web3.js
+npm install @lazorkit/wallet@^2.0.0 @solana/web3.js
 ```
 
 ## Understanding WebAuthn
@@ -71,11 +77,50 @@ Existing wallet restored
 Session returned to app
 ```
 
-## Setting Up the Lazorkit Wrapper
+## Setting Up the Lazorkit Provider
 
-Create a wrapper module to encapsulate all Lazorkit SDK interactions. This provides a clean API and centralizes error handling.
+The Lazorkit SDK uses React Context to manage wallet state. You need to wrap your application with `LazorKitProvider` before using any wallet functionality.
 
-### Step 1: Define Types
+### Step 1: Configure the Provider
+
+First, wrap your app with the provider in `src/app/layout.tsx`:
+
+```typescript
+import { LazorKitProvider } from '@lazorkit/wallet';
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="en">
+      <body>
+        <LazorKitProvider
+          rpcUrl={process.env.NEXT_PUBLIC_LAZORKIT_RPC_URL || 'https://api.devnet.solana.com'}
+          portalUrl={process.env.NEXT_PUBLIC_LAZORKIT_PORTAL_URL || 'https://portal.lazor.sh'}
+          paymasterUrl={process.env.NEXT_PUBLIC_LAZORKIT_PAYMASTER_URL || 'https://lazorkit-paymaster.onrender.com'}
+          config={{
+            autoConnect: true,           // Auto-reconnect on page load
+            persistCredentials: true,    // Save credentials to localStorage
+            syncBetweenTabs: true,      // Sync state across browser tabs
+            allowIframe: true,          // Enable iframe support
+            debug: process.env.NODE_ENV === 'development'
+          }}
+        >
+          {children}
+        </LazorKitProvider>
+      </body>
+    </html>
+  );
+}
+```
+
+**Configuration Options:**
+- `rpcUrl`: Solana RPC endpoint (Devnet for development)
+- `portalUrl`: Lazorkit portal for passkey credential management
+- `paymasterUrl`: Service that sponsors gas fees for transactions
+- `autoConnect`: Automatically restore session on page load
+- `persistCredentials`: Save credentials to localStorage for persistence
+- `syncBetweenTabs`: Keep wallet state synchronized across browser tabs
+
+### Step 2: Define Types
 
 First, create the TypeScript interfaces in `src/types/index.ts`:
 
@@ -115,71 +160,12 @@ export interface AuthError {
 }
 ```
 
-### Step 2: Create the Lazorkit Wrapper
+### Step 3: Create Helper Utilities
 
-Create `src/lib/lazorkit.ts`:
+Create `src/lib/lazorkit.ts` for error mapping and validation:
 
 ```typescript
-import type { WalletSession, AuthError, AuthErrorCode } from '@/types';
-import { PublicKey } from '@solana/web3.js';
-
-/**
- * Creates a structured AuthError object.
- */
-function createAuthError(
-  code: AuthErrorCode,
-  message: string,
-  originalError?: Error
-): AuthError {
-  return { code, message, originalError };
-}
-
-/**
- * Maps raw errors to structured AuthError types.
- * Analyzes error messages to determine the appropriate code.
- */
-function mapError(error: unknown): AuthError {
-  const err = error instanceof Error ? error : new Error(String(error));
-  const message = err.message.toLowerCase();
-
-  // User cancelled the WebAuthn prompt
-  if (message.includes('cancel') || message.includes('abort')) {
-    return createAuthError(
-      'USER_CANCELLED',
-      'Authentication cancelled. Click to try again.',
-      err
-    );
-  }
-
-  // Browser doesn't support WebAuthn
-  if (message.includes('not supported') || message.includes('webauthn')) {
-    return createAuthError(
-      'BROWSER_UNSUPPORTED',
-      "Your browser doesn't support passkeys. Please use Chrome, Safari, or Edge.",
-      err
-    );
-  }
-
-  // Invalid or not found credential
-  if (message.includes('invalid') || message.includes('not found')) {
-    return createAuthError(
-      'CREDENTIAL_INVALID',
-      'Passkey not recognized. Would you like to create a new wallet?',
-      err
-    );
-  }
-
-  // Network errors
-  if (message.includes('network') || message.includes('fetch')) {
-    return createAuthError(
-      'NETWORK_ERROR',
-      'Network error. Please check your connection and try again.',
-      err
-    );
-  }
-
-  return createAuthError('UNKNOWN', 'An unexpected error occurred.', err);
-}
+import type { AuthError, AuthErrorCode } from '@/types';
 
 /**
  * Checks if WebAuthn is supported in the current browser.
@@ -194,97 +180,84 @@ export function isWebAuthnSupported(): boolean {
 }
 
 /**
- * Creates a new wallet using device passkey.
- * 
- * This invokes the WebAuthn API to register a new credential,
- * then creates a Solana smart wallet associated with that passkey.
+ * Maps SDK errors to application AuthError format.
+ * Analyzes error messages to determine the appropriate code.
  */
-export async function createWallet(
-  displayName?: string
-): Promise<WalletSession> {
-  // Check WebAuthn support first
-  if (!isWebAuthnSupported()) {
-    throw createAuthError(
-      'BROWSER_UNSUPPORTED',
-      "Your browser doesn't support passkeys."
-    );
-  }
+export function mapSDKError(error: unknown): AuthError {
+  const err = error instanceof Error ? error : new Error(String(error));
+  const message = err.message.toLowerCase();
 
-  try {
-    // Import Lazorkit SDK dynamically to avoid SSR issues
-    const { useWallet } = await import('@lazorkit/wallet');
-    
-    // The actual implementation uses the connect() method
-    // from the useWallet hook within a React component
-    
-    const session: WalletSession = {
-      publicKey: '', // Populated by SDK
-      credentialId: `cred_${Date.now()}`,
-      createdAt: Date.now(),
-      displayName,
+  // User cancelled the WebAuthn prompt
+  if (message.includes('cancel') || message.includes('abort')) {
+    return {
+      code: 'USER_CANCELLED',
+      message: 'Authentication cancelled. Click to try again.',
+      originalError: err
     };
-
-    return session;
-  } catch (error) {
-    throw mapError(error);
-  }
-}
-
-/**
- * Signs in with an existing passkey.
- * 
- * Invokes WebAuthn to authenticate, then retrieves
- * the associated smart wallet address.
- */
-export async function signIn(): Promise<WalletSession> {
-  if (!isWebAuthnSupported()) {
-    throw createAuthError(
-      'BROWSER_UNSUPPORTED',
-      "Your browser doesn't support passkeys."
-    );
   }
 
-  try {
-    const { useWallet } = await import('@lazorkit/wallet');
-    
-    const session: WalletSession = {
-      publicKey: '',
-      credentialId: '',
-      createdAt: Date.now(),
+  // Browser doesn't support WebAuthn
+  if (message.includes('not supported') || message.includes('webauthn')) {
+    return {
+      code: 'BROWSER_UNSUPPORTED',
+      message: "Your browser doesn't support passkeys. Please use Chrome, Safari, or Edge.",
+      originalError: err
     };
-
-    return session;
-  } catch (error) {
-    throw mapError(error);
   }
+
+  // Invalid or not found credential
+  if (message.includes('invalid') || message.includes('not found')) {
+    return {
+      code: 'CREDENTIAL_INVALID',
+      message: 'Passkey not recognized. Would you like to create a new wallet?',
+      originalError: err
+    };
+  }
+
+  // Network errors
+  if (message.includes('network') || message.includes('fetch')) {
+    return {
+      code: 'NETWORK_ERROR',
+      message: 'Network error. Please check your connection and try again.',
+      originalError: err
+    };
+  }
+
+  return {
+    code: 'UNKNOWN',
+    message: 'An unexpected error occurred. Please try again.',
+    originalError: err
+  };
 }
 ```
 
+**Note**: With the real SDK, you don't need to implement `createWallet()` or `signIn()` functions. The SDK's `useWallet()` hook provides a single `connect()` method that handles both wallet creation and sign-in automatically.
+
 ## Creating the Auth Component
 
-Now create a React component that uses the wrapper. Create `src/components/PasskeyAuth.tsx`:
+Now create a React component that uses the SDK's `useWallet` hook. Create `src/components/PasskeyAuth.tsx`:
 
 ```typescript
 'use client';
 
 import { useState, useCallback } from 'react';
-import type { WalletSession, AuthError } from '@/types';
-import { createWallet, signIn, isWebAuthnSupported } from '@/lib/lazorkit';
-import { saveSession } from '@/lib/storage';
+import { useWallet } from '@lazorkit/wallet';
+import type { AuthError } from '@/types';
+import { mapSDKError, isWebAuthnSupported } from '@/lib/lazorkit';
 
 interface PasskeyAuthProps {
   mode: 'create' | 'signin';
-  onSuccess: (wallet: WalletSession) => void;
+  onSuccess: () => void;
   onError: (error: AuthError) => void;
 }
 
 export function PasskeyAuth({ mode, onSuccess, onError }: PasskeyAuthProps) {
-  const [isLoading, setIsLoading] = useState(false);
+  // Get wallet state and methods from SDK
+  const { connect, isConnecting, smartWalletPubkey } = useWallet();
   const [error, setError] = useState<AuthError | null>(null);
 
   const handleAuth = useCallback(async () => {
     setError(null);
-    setIsLoading(true);
 
     try {
       // Check WebAuthn support
@@ -298,32 +271,29 @@ export function PasskeyAuth({ mode, onSuccess, onError }: PasskeyAuthProps) {
         return;
       }
 
-      // Perform authentication based on mode
-      const wallet = mode === 'create' 
-        ? await createWallet() 
-        : await signIn();
-
-      // Persist session
-      saveSession(wallet);
+      // Single connect() call works for both create and sign-in
+      // SDK automatically detects if credential exists
+      await connect();
       
-      onSuccess(wallet);
+      // On success, SDK updates smartWalletPubkey automatically
+      if (smartWalletPubkey) {
+        onSuccess();
+      }
     } catch (err) {
-      const authError = err as AuthError;
+      const authError = mapSDKError(err);
       setError(authError);
       onError(authError);
-    } finally {
-      setIsLoading(false);
     }
-  }, [mode, onSuccess, onError]);
+  }, [connect, smartWalletPubkey, onSuccess, onError]);
 
   return (
     <div>
       <button
         onClick={handleAuth}
-        disabled={isLoading}
+        disabled={isConnecting}
         className="btn-primary"
       >
-        {isLoading 
+        {isConnecting 
           ? (mode === 'create' ? 'Creating...' : 'Signing In...')
           : (mode === 'create' ? 'Create Wallet' : 'Sign In')
         }
@@ -340,17 +310,28 @@ export function PasskeyAuth({ mode, onSuccess, onError }: PasskeyAuthProps) {
 }
 ```
 
+**Key Differences from Mock Implementation:**
+- Uses `useWallet()` hook from `@lazorkit/wallet` instead of custom functions
+- Single `connect()` method handles both wallet creation and sign-in
+- SDK manages `isConnecting` state automatically
+- SDK updates `smartWalletPubkey` when connection succeeds
+- No need to manually save session - SDK handles persistence via `persistCredentials` config
+
 ### Using the Component
 
 ```typescript
+'use client';
+
 import { PasskeyAuth } from '@/components/PasskeyAuth';
 import { useRouter } from 'next/navigation';
+import { useWallet } from '@lazorkit/wallet';
 
 export default function LoginPage() {
   const router = useRouter();
+  const { smartWalletPubkey } = useWallet();
 
-  const handleSuccess = (wallet) => {
-    console.log('Authenticated:', wallet.publicKey);
+  const handleSuccess = () => {
+    console.log('Authenticated:', smartWalletPubkey?.toBase58());
     router.push('/dashboard');
   };
 
@@ -378,101 +359,80 @@ export default function LoginPage() {
 }
 ```
 
+**What Happens When You Click "Create Wallet":**
+1. Component calls `connect()` from `useWallet` hook
+2. SDK initiates WebAuthn credential creation via `navigator.credentials.create()`
+3. **Your device shows the biometric prompt** (Touch ID, Face ID, Windows Hello, etc.)
+4. You authenticate with your biometric
+5. WebAuthn creates and stores the passkey credential
+6. SDK registers the credential with Lazorkit Portal
+7. SDK derives a smart wallet address from the credential
+8. SDK updates `smartWalletPubkey` and `isConnected` state
+9. Your `onSuccess` callback is triggered
+10. App redirects to dashboard
+
 ## Session Persistence
 
-Sessions are stored in localStorage to persist across browser restarts. Create `src/lib/storage.ts`:
-
-```typescript
-import type { WalletSession } from '@/types';
-
-const SESSION_KEY = 'lazorkit_wallet_session';
-
-/**
- * Validates the structure of stored session data.
- */
-function isValidSession(data: unknown): data is WalletSession {
-  if (typeof data !== 'object' || data === null) return false;
-  
-  const obj = data as Record<string, unknown>;
-  return (
-    typeof obj.publicKey === 'string' &&
-    typeof obj.credentialId === 'string' &&
-    typeof obj.createdAt === 'number'
-  );
-}
-
-/**
- * Saves a wallet session to localStorage.
- */
-export function saveSession(session: WalletSession): void {
-  if (typeof window === 'undefined') return;
-  localStorage.setItem(SESSION_KEY, JSON.stringify(session));
-}
-
-/**
- * Retrieves the wallet session from localStorage.
- * Returns null if not found or invalid.
- */
-export function getSession(): WalletSession | null {
-  if (typeof window === 'undefined') return null;
-  
-  const stored = localStorage.getItem(SESSION_KEY);
-  if (!stored) return null;
-
-  try {
-    const parsed = JSON.parse(stored);
-    if (isValidSession(parsed)) return parsed;
-    
-    // Clear corrupted data
-    clearSession();
-    return null;
-  } catch {
-    clearSession();
-    return null;
-  }
-}
-
-/**
- * Clears the wallet session from localStorage.
- */
-export function clearSession(): void {
-  if (typeof window === 'undefined') return;
-  localStorage.removeItem(SESSION_KEY);
-}
-```
+The Lazorkit SDK automatically handles session persistence when you configure `persistCredentials: true` in the provider. You don't need to manually manage localStorage.
 
 ### Auto-Restore on App Load
 
-Check for existing sessions when the app loads:
+The SDK automatically restores sessions when `autoConnect: true` is configured:
 
 ```typescript
 'use client';
 
-import { useEffect, useState } from 'react';
-import { getSession } from '@/lib/storage';
+import { useEffect } from 'react';
+import { useWallet } from '@lazorkit/wallet';
 import { useRouter } from 'next/navigation';
 
 export default function HomePage() {
   const router = useRouter();
-  const [checking, setChecking] = useState(true);
+  const { isConnected, isLoading } = useWallet();
 
   useEffect(() => {
-    const session = getSession();
-    if (session) {
+    // SDK automatically attempts to restore session on mount
+    if (!isLoading && isConnected) {
       // Valid session exists, redirect to dashboard
       router.push('/dashboard');
-    } else {
-      setChecking(false);
     }
-  }, [router]);
+  }, [isConnected, isLoading, router]);
 
-  if (checking) {
+  if (isLoading) {
     return <div>Loading...</div>;
   }
 
   return (
     // Show login UI
   );
+}
+```
+
+**How SDK Persistence Works:**
+1. When `connect()` succeeds, SDK stores credential data in localStorage
+2. On page load, SDK checks for stored credentials (if `autoConnect: true`)
+3. If found, SDK automatically restores the wallet session
+4. `isConnected` becomes `true` and `smartWalletPubkey` is populated
+5. No user interaction required for reconnection
+
+### Manual Disconnect
+
+To clear the session and disconnect:
+
+```typescript
+import { useWallet } from '@lazorkit/wallet';
+
+function LogoutButton() {
+  const { disconnect } = useWallet();
+
+  const handleLogout = async () => {
+    await disconnect();
+    // SDK clears credentials from localStorage
+    // isConnected becomes false
+    // smartWalletPubkey becomes null
+  };
+
+  return <button onClick={handleLogout}>Logout</button>;
 }
 ```
 

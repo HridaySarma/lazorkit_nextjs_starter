@@ -60,12 +60,109 @@ npm run dev
 - Browser is in incognito/private mode
 - localStorage is disabled
 - Browser extensions blocking storage
+- SDK credential persistence not enabled
 
 **Solution**:
 1. Use a regular browser window (not incognito)
 2. Check browser settings to ensure localStorage is enabled
 3. Disable browser extensions that might block storage
-4. Try a different browser
+4. Verify `persistCredentials: true` in LazorKitProvider config
+5. Try a different browser
+
+**Check SDK Configuration**:
+The app should have this in `src/app/layout.tsx`:
+```typescript
+<LazorKitProvider
+  config={{
+    persistCredentials: true,  // ← Should be true
+    autoConnect: true,
+  }}
+>
+```
+
+---
+
+### Lazorkit SDK Connection Issues
+
+#### "Failed to Connect to Portal" Error
+
+**Symptoms**: Error about portal connection failure
+
+**Causes**:
+- Network connectivity issues
+- Lazorkit Portal service is down
+- Incorrect portal URL in environment variables
+
+**Solutions**:
+1. Check your internet connection
+2. Verify portal URL in `.env.local`:
+   ```env
+   NEXT_PUBLIC_LAZORKIT_PORTAL_URL=https://portal.lazor.sh
+   ```
+3. Check Lazorkit service status
+4. Try again after a few moments
+
+#### Paymaster Service Unavailable (503 Error)
+
+**Symptoms**: 
+- Error: "Failed to get payer: Service Unavailable"
+- HTTP 503 errors in console
+- Cannot create wallets or send transactions
+
+**Causes**:
+- Paymaster service at `https://lazorkit-paymaster.onrender.com` is down
+- Free tier hosting may have downtime or rate limits
+- Service maintenance or outage
+
+**Solutions**:
+1. **Wait and retry** - Service may recover in 5-30 minutes
+2. **Check service status** - Contact Lazorkit support for updates
+3. **Use alternative endpoint** - If Lazorkit provides a backup URL:
+   ```env
+   NEXT_PUBLIC_LAZORKIT_PAYMASTER_URL=https://paymaster-backup.lazorkit.xyz
+   ```
+4. **See PAYMASTER-SERVICE-DOWN.md** for detailed workarounds
+
+**Note**: The Lazorkit SDK requires a working paymaster for wallet creation and transactions. Without it, you can only test UI components and run unit tests.
+
+#### Paymaster Transaction Failures (Other Errors)
+
+**Symptoms**: Gasless transactions fail with paymaster errors (not 503)
+
+**Causes**:
+- Paymaster rate-limited your requests
+- Invalid paymaster URL configuration
+- Transaction too large or complex
+
+**Solutions**:
+1. Verify paymaster URL in `.env.local`:
+   ```env
+   NEXT_PUBLIC_LAZORKIT_PAYMASTER_URL=https://lazorkit-paymaster.onrender.com
+   ```
+2. Wait a few moments and retry (service may be rate-limited)
+3. Check transaction size and complexity
+4. Verify you have sufficient USDC balance
+
+#### SDK Hook Errors ("useWallet must be used within LazorKitProvider")
+
+**Symptoms**: Error about missing provider context
+
+**Cause**: Component using `useWallet()` is not wrapped by `LazorKitProvider`
+
+**Solution**: Ensure `LazorKitProvider` wraps your app in `src/app/layout.tsx`:
+```typescript
+export default function RootLayout({ children }) {
+  return (
+    <html>
+      <body>
+        <LazorKitProvider {...config}>
+          {children}
+        </LazorKitProvider>
+      </body>
+    </html>
+  );
+}
+```
 
 ---
 
@@ -121,13 +218,87 @@ npm run dev
 
 ---
 
-### "Cannot read property 'toBase58' of undefined"
+### WebAuthn / Passkey Issues
 
-**Symptoms**: Error when trying to use wallet functions
+#### Biometric Prompt Not Appearing
 
-**Cause**: This is expected in demo mode - the wallet functions are simulated
+**Symptoms**: Clicking "Create Wallet" or "Sign In" doesn't show Touch ID/Face ID prompt
 
-**Solution**: This is normal! The demo uses mock implementations. See [IMPLEMENTATION-NOTE.md](./IMPLEMENTATION-NOTE.md) for details on integrating the real Lazorkit SDK.
+**Causes**:
+- Browser doesn't support WebAuthn
+- Device doesn't have biometric authentication enabled
+- Using HTTP instead of HTTPS (in production)
+- Browser permissions denied
+
+**Solutions**:
+1. **Check Browser Support**: Use Chrome 67+, Safari 13+, Edge 18+, or Firefox 60+
+2. **Enable Biometrics**: 
+   - Mac: System Preferences → Touch ID
+   - iPhone: Settings → Face ID & Passcode
+   - Android: Settings → Security → Fingerprint
+   - Windows: Settings → Accounts → Sign-in options → Windows Hello
+3. **Use HTTPS**: In production, WebAuthn requires HTTPS (localhost is allowed for development)
+4. **Check Permissions**: Ensure browser has permission to access biometric hardware
+5. **Try Different Browser**: Some browsers have better WebAuthn support than others
+
+**Test WebAuthn Support**:
+Open browser console (F12) and run:
+```javascript
+if (window.PublicKeyCredential) {
+  PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()
+    .then(available => console.log("Biometrics available:", available));
+} else {
+  console.log("WebAuthn not supported");
+}
+```
+
+#### "User Cancelled" Error
+
+**Symptoms**: Error message saying authentication was cancelled
+
+**Cause**: User dismissed the biometric prompt or authentication timed out
+
+**Solution**: 
+- Click "Try Again" to retry
+- Ensure you complete the biometric authentication within the timeout period (usually 60 seconds)
+- If using Touch ID, make sure your finger is clean and dry
+
+#### "Credential Not Found" Error
+
+**Symptoms**: Sign-in fails with credential not found
+
+**Causes**:
+- Trying to sign in on a different device than where wallet was created
+- Passkey was deleted from device
+- Browser data was cleared
+
+**Solutions**:
+1. **Create New Wallet**: Passkeys are device-specific. Create a new wallet on this device.
+2. **Use Same Device**: Return to the device where you originally created the wallet
+3. **Check Keychain** (Mac/iOS): Open Keychain Access and search for "lazor" to verify credential exists
+
+#### Passkey Works on One Browser But Not Another
+
+**Symptoms**: Wallet works in Chrome but not Safari (or vice versa)
+
+**Cause**: Passkeys are stored per-browser on most platforms (except iOS/Mac with iCloud Keychain sync)
+
+**Solution**: 
+- Create a separate wallet in each browser, or
+- Use iCloud Keychain on Apple devices to sync passkeys across Safari/Chrome
+
+#### "Browser Not Supported" Error
+
+**Symptoms**: Error message about unsupported browser
+
+**Supported Browsers**:
+- ✅ Chrome 67+ (Windows, Mac, Android, Linux)
+- ✅ Safari 13+ (Mac, iOS)
+- ✅ Edge 18+ (Windows, Mac)
+- ✅ Firefox 60+ (Windows, Mac, Linux)
+- ✅ Brave 1.9+ (Windows, Mac, Android)
+
+**Solution**: Update your browser or switch to a supported browser
 
 ---
 

@@ -76,6 +76,67 @@ body {
   }
 }
 
+/* Floating orb animations for hero background - more dramatic movement */
+@keyframes float-slow {
+  0%, 100% {
+    transform: translate(0, 0) scale(1);
+  }
+  25% {
+    transform: translate(60px, -40px) scale(1.1);
+  }
+  50% {
+    transform: translate(-40px, 60px) scale(0.9);
+  }
+  75% {
+    transform: translate(-60px, -20px) scale(1.05);
+  }
+}
+
+@keyframes float-medium {
+  0%, 100% {
+    transform: translate(0, 0) scale(1);
+  }
+  33% {
+    transform: translate(-80px, 40px) scale(1.15);
+  }
+  66% {
+    transform: translate(60px, -60px) scale(0.85);
+  }
+}
+
+@keyframes float-fast {
+  0%, 100% {
+    transform: translate(0, 0) scale(1);
+  }
+  20% {
+    transform: translate(50px, 30px) scale(1.2);
+  }
+  40% {
+    transform: translate(-30px, 70px) scale(0.8);
+  }
+  60% {
+    transform: translate(-70px, -20px) scale(1.1);
+  }
+  80% {
+    transform: translate(40px, -50px) scale(0.9);
+  }
+}
+
+@keyframes float-reverse {
+  0%, 100% {
+    transform: translate(0, 0) scale(1);
+  }
+  25% {
+    transform: translate(-50px, 40px) scale(0.9);
+  }
+  50% {
+    transform: translate(70px, -30px) scale(1.15);
+  }
+  75% {
+    transform: translate(30px, 60px) scale(0.95);
+  }
+}
+
 /* Scale animation for button press */
 @keyframes press {
   0% {
@@ -110,6 +171,23 @@ body {
 
 .animate-pulse-subtle {
   animation: pulse-subtle 2s ease-in-out infinite;
+}
+
+/* Floating orb animation classes - faster for visibility */
+.animate-float-slow {
+  animation: float-slow 8s ease-in-out infinite;
+}
+
+.animate-float-medium {
+  animation: float-medium 6s ease-in-out infinite;
+}
+
+.animate-float-fast {
+  animation: float-fast 5s ease-in-out infinite;
+}
+
+.animate-float-reverse {
+  animation: float-reverse 7s ease-in-out infinite;
 }
 
 /**

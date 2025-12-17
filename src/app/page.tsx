@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useWallet } from '@lazorkit/wallet';
 import { PasskeyAuth } from '@/components/PasskeyAuth';
+import { PaymasterStatusBanner } from '@/components/PaymasterStatusBanner';
 import { useToast } from '@/components/ToastProvider';
 import type { WalletSession, AuthError } from '@/types';
 
@@ -63,10 +64,25 @@ export default function Home() {
     <main className="min-h-screen bg-bg-primary">
       {/* Hero Section */}
       <div className="relative overflow-hidden">
-        {/* Background gradient decoration */}
+        {/* Animated background */}
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <div className="absolute -top-40 -right-40 w-80 h-80 bg-primary/20 rounded-full blur-3xl" />
-          <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-purple-500/20 rounded-full blur-3xl" />
+          {/* Floating orbs with animations - increased opacity for visibility */}
+          <div 
+            className="absolute -top-20 -right-20 w-[500px] h-[500px] rounded-full blur-[100px] animate-float-slow"
+            style={{ background: 'rgba(99, 102, 241, 0.4)' }}
+          />
+          <div 
+            className="absolute -bottom-20 -left-20 w-[500px] h-[500px] rounded-full blur-[100px] animate-float-medium"
+            style={{ background: 'rgba(168, 85, 247, 0.35)' }}
+          />
+          <div 
+            className="absolute top-1/3 left-1/3 w-[350px] h-[350px] rounded-full blur-[80px] animate-float-fast"
+            style={{ background: 'rgba(129, 140, 248, 0.3)' }}
+          />
+          <div 
+            className="absolute bottom-1/4 right-1/3 w-[400px] h-[400px] rounded-full blur-[90px] animate-float-reverse"
+            style={{ background: 'rgba(139, 92, 246, 0.25)' }}
+          />
         </div>
 
         <div className="relative max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-16 sm:py-24">
@@ -92,6 +108,9 @@ export default function Home() {
               Create a secure wallet with just your fingerprint or Face ID. 
               No seed phrases, no gas fees, no complexity.
             </p>
+
+            {/* Paymaster Status Warning */}
+            <PaymasterStatusBanner />
 
             {/* Auth Buttons or Auth Component */}
             <div className="max-w-sm mx-auto">

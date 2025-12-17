@@ -10,3 +10,4 @@ export { GaslessTransfer } from './GaslessTransfer';
 export { TransactionHistory } from './TransactionHistory';
 export { ToastProvider, useToast } from './ToastProvider';
 export { LazorkitProviderWrapper } from './LazorkitProviderWrapper';
+export { PaymasterStatusBanner } from './PaymasterStatusBanner';

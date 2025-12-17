@@ -56,7 +56,7 @@ export const metadata: Metadata = {
     description: "Solana wallet with passkey authentication and gasless transactions.",
   },
   icons: {
-    icon: "/favicon.ico",
+    icon: "/icon.svg",
   },
 };
 

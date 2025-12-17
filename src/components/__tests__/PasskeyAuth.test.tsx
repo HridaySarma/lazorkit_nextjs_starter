@@ -26,6 +26,7 @@ vi.mock('@/lib/lazorkit', () => ({
     };
   },
   isWebAuthnSupported: vi.fn(() => true),
+  isPlatformAuthenticatorAvailable: vi.fn(() => Promise.resolve(true)),
 }));
 
 describe('PasskeyAuth Component - SDK Integration', () => {
