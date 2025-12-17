@@ -121,8 +121,7 @@ export function GaslessTransfer({ usdcBalance, onTransferComplete }: GaslessTran
       // Build transaction instructions
       const instructions = [];
 
-      // Check if recipient has a USDC token account, if not create one
-      const { createAssociatedTokenAccountInstruction } = await import('@solana/spl-token');
+      // Check token accounts exist
       const { Connection } = await import('@solana/web3.js');
       
       const connection = new Connection(
@@ -130,18 +129,20 @@ export function GaslessTransfer({ usdcBalance, onTransferComplete }: GaslessTran
         'confirmed'
       );
       
+      // Verify sender has a token account with balance
+      const senderAccountInfo = await connection.getAccountInfo(senderTokenAccount);
+      if (!senderAccountInfo) {
+        throw new Error('Your wallet does not have a USDC token account. Please receive some USDC first.');
+      }
+      
+      // Check if recipient has a USDC token account
       const recipientAccountInfo = await connection.getAccountInfo(recipientTokenAccount);
       
       if (!recipientAccountInfo) {
-        // Create ATA for recipient - fee payer will be handled by paymaster
-        instructions.push(
-          createAssociatedTokenAccountInstruction(
-            smartWalletPubkey, // payer
-            recipientTokenAccount, // ata
-            recipientPubkey, // owner
-            USDC_MINT // mint
-          )
-        );
+        // Recipient doesn't have a USDC token account
+        // For gasless transactions, we cannot create ATAs because the smart wallet has no SOL for rent
+        // The paymaster only sponsors transaction fees, not account creation rent
+        throw new Error('Recipient does not have a USDC token account. They need to receive USDC from a funded wallet first to create their account.');
       }
 
       // Create SPL token transfer instruction for USDC
