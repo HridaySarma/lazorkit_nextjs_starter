@@ -18,7 +18,7 @@ export interface SDKConfig {
 const DEFAULT_CONFIG: SDKConfig = {
   rpcUrl: 'https://api.devnet.solana.com',
   portalUrl: 'https://portal.lazor.sh',
-  paymasterUrl: 'https://lazorkit-paymaster.onrender.com',
+  paymasterUrl: 'https://kora.devnet.lazorkit.com',
 };
 
 /**

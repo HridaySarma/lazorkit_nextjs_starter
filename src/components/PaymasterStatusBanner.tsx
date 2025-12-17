@@ -15,19 +15,27 @@ export function PaymasterStatusBanner() {
   useEffect(() => {
     const checkPaymasterStatus = async () => {
       const paymasterUrl = process.env.NEXT_PUBLIC_LAZORKIT_PAYMASTER_URL || 
-                          'https://lazorkit-paymaster.onrender.com';
+                          'https://kora.devnet.lazorkit.com';
       
       try {
-        // Try to reach the paymaster (will fail with CORS but that's ok - we just want to see if it's up)
-        const response = await fetch(paymasterUrl, { 
-          method: 'HEAD',
-          mode: 'no-cors' // Avoid CORS issues, we just want to know if it responds
+        // Use POST with empty body - paymaster endpoints typically accept POST
+        // This avoids the 405 error from HEAD requests
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+        
+        await fetch(paymasterUrl, { 
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+          signal: controller.signal
         });
         
-        // If we get here without error, service is likely up
+        clearTimeout(timeoutId);
+        
+        // Any response (even 4xx) means the service is reachable
         setIsDown(false);
       } catch (error) {
-        // Service might be down
+        // Network error or timeout - service might be down
         setIsDown(true);
       } finally {
         setIsChecking(false);

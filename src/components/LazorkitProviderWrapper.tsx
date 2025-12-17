@@ -24,7 +24,7 @@ import { ReactNode } from 'react';
  * Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6
  */
 export function LazorkitProviderWrapper({ children }: { children: ReactNode }) {
-  const paymasterUrl = process.env.NEXT_PUBLIC_LAZORKIT_PAYMASTER_URL || 'https://lazorkit-paymaster.onrender.com';
+  const paymasterUrl = process.env.NEXT_PUBLIC_LAZORKIT_PAYMASTER_URL || 'https://kora.devnet.lazorkit.com';
   
   // Optional: Skip paymaster config if explicitly disabled for testing
   const paymasterConfig = process.env.NEXT_PUBLIC_DISABLE_PAYMASTER === 'true' 

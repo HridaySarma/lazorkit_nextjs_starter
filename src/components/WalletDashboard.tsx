@@ -1,9 +1,12 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useWallet } from '@lazorkit/wallet';
 import { getSOLBalance, getUSDCBalance, formatBalance, truncateAddress } from '@/lib/solana';
 import { useToast } from './ToastProvider';
+
+/** Minimum interval between balance fetches (30 seconds) */
+const MIN_FETCH_INTERVAL_MS = 30000;
 
 /**
  * Props for the WalletDashboard component.
@@ -32,14 +35,29 @@ export function WalletDashboard({ onLogout }: WalletDashboardProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  
+  // Refs to prevent excessive RPC calls
+  const lastFetchTimeRef = useRef<number>(0);
+  const isFetchingRef = useRef<boolean>(false);
+  const hasFetchedRef = useRef<boolean>(false);
 
   /**
    * Fetches both SOL and USDC balances from the blockchain.
-   * Shows error toast on failure with retry option.
+   * Includes rate limiting to prevent 429 errors from Solana RPC.
    */
-  const fetchBalances = useCallback(async () => {
+  const fetchBalances = useCallback(async (force = false) => {
     if (!smartWalletPubkey) return;
+    
+    // Prevent concurrent fetches
+    if (isFetchingRef.current) return;
+    
+    // Rate limit: skip if fetched recently (unless forced by user)
+    const now = Date.now();
+    if (!force && lastFetchTimeRef.current && (now - lastFetchTimeRef.current) < MIN_FETCH_INTERVAL_MS) {
+      return;
+    }
 
+    isFetchingRef.current = true;
     setIsLoading(true);
     setError(null);
 
@@ -52,21 +70,31 @@ export function WalletDashboard({ onLogout }: WalletDashboardProps) {
 
       setSolBalance(sol);
       setUsdcBalance(usdc);
+      lastFetchTimeRef.current = Date.now();
+      hasFetchedRef.current = true;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to fetch balances';
       setError(message);
-      showError(message, fetchBalances);
+      // Don't pass fetchBalances to showError to avoid circular dependency
+      showError(message);
     } finally {
       setIsLoading(false);
+      isFetchingRef.current = false;
     }
   }, [smartWalletPubkey, showError]);
 
   // Fetch balances on mount and when wallet changes
+  // Uses ref to prevent double-fetch in React Strict Mode
   useEffect(() => {
-    if (isConnected && smartWalletPubkey) {
+    if (isConnected && smartWalletPubkey && !hasFetchedRef.current) {
       fetchBalances();
     }
-  }, [fetchBalances, isConnected, smartWalletPubkey]);
+    
+    // Reset hasFetched when wallet changes
+    return () => {
+      hasFetchedRef.current = false;
+    };
+  }, [isConnected, smartWalletPubkey, fetchBalances]);
 
   /**
    * Handles logout by calling SDK disconnect method.
@@ -246,7 +274,7 @@ export function WalletDashboard({ onLogout }: WalletDashboardProps) {
               <span className="text-sm text-error">{error}</span>
             </div>
             <button
-              onClick={fetchBalances}
+              onClick={() => fetchBalances(true)}
               className="text-sm text-primary hover:text-primary-light transition-colors"
             >
               Retry
@@ -257,7 +285,7 @@ export function WalletDashboard({ onLogout }: WalletDashboardProps) {
 
       {/* Refresh Button */}
       <button
-        onClick={fetchBalances}
+        onClick={() => fetchBalances(true)}
         disabled={isLoading}
         className={`
           w-full flex items-center justify-center gap-2 px-4 py-3

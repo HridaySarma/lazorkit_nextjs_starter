@@ -44,7 +44,7 @@ export function PasskeyAuth({ mode, onSuccess, onError }: PasskeyAuthProps) {
       if (!isAvailable) {
         const authError: AuthError = {
           code: 'BROWSER_UNSUPPORTED',
-          message: "Passkeys are not available. This may be due to using a remote desktop or VM. Please use a local Chrome, Safari, or Edge browser.",
+          message: "Passkeys are not available. Please use a local Chrome, Safari, or Edge browser.",
         };
         setError(authError);
         onError(authError);

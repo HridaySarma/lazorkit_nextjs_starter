@@ -18,10 +18,10 @@ import { PublicKey } from '@solana/web3.js';
 const DEFAULT_RPC_URL = 'https://api.devnet.solana.com';
 
 /** Default Lazorkit portal URL */
-const DEFAULT_PORTAL_URL = 'https://portal.lazorkit.xyz';
+const DEFAULT_PORTAL_URL = 'https://portal.lazor.sh';
 
 /** Default Paymaster URL for gasless transactions */
-const DEFAULT_PAYMASTER_URL = 'https://paymaster.lazorkit.xyz';
+const DEFAULT_PAYMASTER_URL = 'https://kora.devnet.lazorkit.com';
 
 /**
  * Configuration options for Lazorkit SDK initialization.
