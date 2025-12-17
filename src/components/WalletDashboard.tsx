@@ -14,6 +14,8 @@ const MIN_FETCH_INTERVAL_MS = 30000;
 interface WalletDashboardProps {
   /** Callback fired when user logs out */
   onLogout: () => void;
+  /** Callback fired when balances are updated */
+  onBalanceUpdate?: (solBalance: number | null, usdcBalance: number | null) => void;
 }
 
 /**
@@ -27,7 +29,7 @@ interface WalletDashboardProps {
  * 
  * Requirements: 6.1, 6.2, 6.3, 6.4, 7.1, 7.2, 7.3, 7.4, 7.5
  */
-export function WalletDashboard({ onLogout }: WalletDashboardProps) {
+export function WalletDashboard({ onLogout, onBalanceUpdate }: WalletDashboardProps) {
   const { smartWalletPubkey, isConnected, disconnect } = useWallet();
   const { showSuccess, showError } = useToast();
   const [solBalance, setSolBalance] = useState<number | null>(null);
@@ -72,6 +74,9 @@ export function WalletDashboard({ onLogout }: WalletDashboardProps) {
       setUsdcBalance(usdc);
       lastFetchTimeRef.current = Date.now();
       hasFetchedRef.current = true;
+      
+      // Notify parent of balance update
+      onBalanceUpdate?.(sol, usdc);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to fetch balances';
       setError(message);
@@ -149,12 +154,12 @@ export function WalletDashboard({ onLogout }: WalletDashboardProps) {
     const formattedBalance = balance !== null ? formatBalance(balance, token) : '—';
 
     return (
-      <div className="bg-bg-card rounded-card p-5 flex-1 min-w-[140px]">
+      <div className="bg-bg-card rounded-card p-5 min-w-0 overflow-hidden">
         <div className="flex items-center gap-2 mb-3">
           {icon}
           <span className="text-text-secondary text-sm font-medium">{token}</span>
         </div>
-        <div className="text-2xl font-bold text-text-primary">
+        <div className="text-2xl font-bold text-text-primary truncate">
           {isLoading ? (
             <div className="h-8 w-24 bg-bg-secondary rounded animate-pulse" />
           ) : (
@@ -236,7 +241,7 @@ export function WalletDashboard({ onLogout }: WalletDashboardProps) {
       </div>
 
       {/* Balance Cards */}
-      <div className="flex gap-4 flex-wrap">
+      <div className="grid grid-cols-2 gap-4">
         {renderBalanceCard(
           'SOL',
           solBalance,

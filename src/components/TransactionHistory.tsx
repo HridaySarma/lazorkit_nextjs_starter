@@ -110,10 +110,11 @@ export function TransactionHistory({ walletAddress }: TransactionHistoryProps) {
 
   /**
    * Gets the status badge for a transaction.
+   * Uses neutral colors to avoid clashing with transaction type colors.
    */
   const getStatusBadge = (status: Transaction['status']) => {
     const styles = {
-      confirmed: 'bg-success/20 text-success',
+      confirmed: 'bg-text-muted/20 text-text-secondary',
       pending: 'bg-warning/20 text-warning',
       failed: 'bg-error/20 text-error',
     };
@@ -199,47 +200,49 @@ export function TransactionHistory({ walletAddress }: TransactionHistoryProps) {
         href={getExplorerUrl(tx.signature)}
         target="_blank"
         rel="noopener noreferrer"
-        className="flex items-center gap-4 p-4 bg-bg-secondary rounded-lg hover:bg-bg-card transition-all duration-200 cursor-pointer group focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-bg-card"
+        className="block p-4 bg-bg-secondary rounded-lg hover:bg-bg-card transition-all duration-200 cursor-pointer group focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-bg-card"
       >
-        {getTransactionIcon(tx.type)}
-        
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-3">
+            {getTransactionIcon(tx.type)}
             <span className="text-text-primary font-medium capitalize">
               {tx.type === 'unknown' ? 'Transaction' : tx.type}
             </span>
-            {getStatusBadge(tx.status)}
           </div>
+          <div className="flex items-center gap-2">
+            {getStatusBadge(tx.status)}
+            <svg
+              className="w-4 h-4 text-text-muted opacity-0 group-hover:opacity-100 transition-opacity"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+            </svg>
+          </div>
+        </div>
+        
+        <div className="flex items-center justify-between pl-11">
           <p className="text-text-muted text-sm truncate">
             {tx.counterparty ? truncateAddress(tx.counterparty) : 'Unknown'}
           </p>
+          <div className="text-right">
+            <p className={`font-medium ${amountColor}`}>
+              {amountPrefix}{formatBalance(tx.amount, tx.token)} {tx.token}
+            </p>
+            <p className="text-text-muted text-xs">
+              {formatTimestamp(tx.timestamp)}
+            </p>
+          </div>
         </div>
-
-        <div className="text-right">
-          <p className={`font-medium ${amountColor}`}>
-            {amountPrefix}{formatBalance(tx.amount, tx.token)} {tx.token}
-          </p>
-          <p className="text-text-muted text-xs">
-            {formatTimestamp(tx.timestamp)}
-          </p>
-        </div>
-
-        <svg
-          className="w-4 h-4 text-text-muted opacity-0 group-hover:opacity-100 transition-opacity"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-        </svg>
       </a>
     );
   };
 
   return (
-    <div className="bg-bg-card rounded-card p-5">
+    <div className="bg-bg-card rounded-card p-5 overflow-hidden">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold text-text-primary">
+        <h3 className="text-lg font-semibold text-text-primary truncate">
           Recent Transactions
         </h3>
         <button

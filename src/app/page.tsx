@@ -34,7 +34,7 @@ export default function Home() {
   /**
    * Handles successful authentication by showing toast and redirecting to dashboard.
    */
-  const handleAuthSuccess = (wallet: WalletSession) => {
+  const handleAuthSuccess = (_wallet: WalletSession) => {
     const message = authMode === 'create' 
       ? 'Wallet created successfully!' 
       : 'Signed in successfully!';

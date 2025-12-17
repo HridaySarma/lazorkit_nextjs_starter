@@ -6,7 +6,6 @@ import { useWallet } from '@lazorkit/wallet';
 import { WalletDashboard } from '@/components/WalletDashboard';
 import { GaslessTransfer } from '@/components/GaslessTransfer';
 import { TransactionHistory } from '@/components/TransactionHistory';
-import { getUSDCBalance } from '@/lib/solana';
 
 /**
  * Dashboard Page Component
@@ -33,26 +32,12 @@ export default function DashboardPage() {
   }, [isConnected, router]);
 
   /**
-   * Fetches the current USDC balance for the wallet.
+   * Handles balance updates from WalletDashboard component.
+   * This avoids duplicate RPC calls and keeps balances in sync.
    */
-  const fetchUSDCBalance = useCallback(async () => {
-    if (!smartWalletPubkey) return;
-    
-    try {
-      const walletAddress = smartWalletPubkey.toBase58();
-      const balance = await getUSDCBalance(walletAddress);
-      setUsdcBalance(balance);
-    } catch (err) {
-      console.error('Failed to fetch USDC balance:', err);
-    }
-  }, [smartWalletPubkey]);
-
-  // Fetch USDC balance when wallet is connected
-  useEffect(() => {
-    if (smartWalletPubkey) {
-      fetchUSDCBalance();
-    }
-  }, [smartWalletPubkey, fetchUSDCBalance]);
+  const handleBalanceUpdate = useCallback((_solBalance: number | null, usdcBal: number | null) => {
+    setUsdcBalance(usdcBal ?? 0);
+  }, []);
 
   /**
    * Handles logout by redirecting to landing.
@@ -63,11 +48,11 @@ export default function DashboardPage() {
   };
 
   /**
-   * Handles transfer completion by refreshing balances.
+   * Handles transfer completion - WalletDashboard will refresh and notify us.
    */
-  const handleTransferComplete = () => {
-    fetchUSDCBalance();
-  };
+  const handleTransferComplete = useCallback(() => {
+    // Balance will be updated via onBalanceUpdate callback from WalletDashboard
+  }, []);
 
   // Show loading state while checking connection
   if (isLoading || !isConnected || !smartWalletPubkey) {
@@ -103,13 +88,14 @@ export default function DashboardPage() {
       </header>
 
       {/* Main Content */}
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 overflow-hidden">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left Column - Wallet Info & Transfer */}
-          <div className="lg:col-span-2 space-y-6">
+          <div className="lg:col-span-2 space-y-6 min-w-0">
             {/* Wallet Dashboard */}
             <WalletDashboard
               onLogout={handleLogout}
+              onBalanceUpdate={handleBalanceUpdate}
             />
 
             {/* Gasless Transfer */}
@@ -120,7 +106,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Right Column - Transaction History */}
-          <div className="lg:col-span-1">
+          <div className="lg:col-span-1 min-w-0">
             <TransactionHistory
               walletAddress={walletAddress}
             />

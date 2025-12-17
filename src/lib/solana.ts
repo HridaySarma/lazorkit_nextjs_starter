@@ -142,10 +142,11 @@ export function validateSolanaAddress(address: string): boolean {
   }
 
   try {
-    const publicKey = new PublicKey(address);
     // PublicKey constructor validates base58 and creates a 32-byte key
-    // We also verify it's on the ed25519 curve by checking it's not all zeros
-    return PublicKey.isOnCurve(publicKey.toBytes());
+    // Note: We don't check isOnCurve because PDAs and many valid addresses
+    // are off-curve but still valid Solana addresses
+    new PublicKey(address);
+    return true;
   } catch {
     return false;
   }

@@ -105,27 +105,58 @@ export function GaslessTransfer({ usdcBalance, onTransferComplete }: GaslessTran
       const recipientPubkey = new PublicKey(recipient);
       
       // Get associated token accounts for sender and recipient
+      // allowOwnerOffCurve: true is needed for PDA wallets like Lazorkit smart wallets
       const senderTokenAccount = await getAssociatedTokenAddress(
         USDC_MINT,
-        smartWalletPubkey
+        smartWalletPubkey,
+        true // allowOwnerOffCurve
       );
       
       const recipientTokenAccount = await getAssociatedTokenAddress(
         USDC_MINT,
-        recipientPubkey
+        recipientPubkey,
+        true // allowOwnerOffCurve - recipient might also be a PDA
       );
+
+      // Build transaction instructions
+      const instructions = [];
+
+      // Check if recipient has a USDC token account, if not create one
+      const { createAssociatedTokenAccountInstruction } = await import('@solana/spl-token');
+      const { Connection } = await import('@solana/web3.js');
+      
+      const connection = new Connection(
+        process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com',
+        'confirmed'
+      );
+      
+      const recipientAccountInfo = await connection.getAccountInfo(recipientTokenAccount);
+      
+      if (!recipientAccountInfo) {
+        // Create ATA for recipient - fee payer will be handled by paymaster
+        instructions.push(
+          createAssociatedTokenAccountInstruction(
+            smartWalletPubkey, // payer
+            recipientTokenAccount, // ata
+            recipientPubkey, // owner
+            USDC_MINT // mint
+          )
+        );
+      }
 
       // Create SPL token transfer instruction for USDC
       // Amount is in smallest units (6 decimals for USDC)
-      const transferInstruction = createTransferInstruction(
-        senderTokenAccount,
-        recipientTokenAccount,
-        smartWalletPubkey,
-        Math.floor(parseFloat(amount) * 1_000_000) // Convert to smallest units
+      instructions.push(
+        createTransferInstruction(
+          senderTokenAccount,
+          recipientTokenAccount,
+          smartWalletPubkey,
+          Math.floor(parseFloat(amount) * 1_000_000) // Convert to smallest units
+        )
       );
 
-      // Create transaction with the transfer instruction
-      const transaction = new Transaction().add(transferInstruction);
+      // Create transaction with all instructions
+      const transaction = new Transaction().add(...instructions);
 
       // SDK handles signing with passkey + gasless submission via paymaster
       const signature = await signAndSendTransaction(transaction);
@@ -139,6 +170,7 @@ export function GaslessTransfer({ usdcBalance, onTransferComplete }: GaslessTran
       // Auto-refresh balances after successful transfer
       onTransferComplete();
     } catch (err) {
+      console.error('Transfer error:', err);
       // Map SDK errors to user-friendly messages
       const authError = mapSDKError(err);
       setTransactionError(authError.message);
