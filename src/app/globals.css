@@ -1,0 +1,224 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Primary gradient for CTAs and accents */
+  --gradient-primary: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+
+  /* Background colors */
+  --bg-primary: #0f0f23;
+  --bg-secondary: #1a1a2e;
+  --bg-card: #16213e;
+
+  /* Text colors */
+  --text-primary: #ffffff;
+  --text-secondary: #a0aec0;
+  --text-muted: #718096;
+
+  /* Status colors */
+  --success: #10b981;
+  --error: #ef4444;
+  --warning: #f59e0b;
+}
+
+body {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+/**
+ * Custom animation utilities for smooth transitions
+ * Requirements: 7.7, 7.10
+ */
+
+/* Slide-in animation from right for toasts */
+@keyframes slide-in-from-right {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* Fade-in animation */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Slide-in from bottom for modals */
+@keyframes slide-in-from-bottom {
+  from {
+    transform: translateY(10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Pulse animation for loading states */
+@keyframes pulse-subtle {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+/* Scale animation for button press */
+@keyframes press {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(0.98);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* Animation utility classes */
+.animate-in {
+  animation-duration: 200ms;
+  animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  animation-fill-mode: forwards;
+}
+
+.slide-in-from-right-full {
+  animation-name: slide-in-from-right;
+}
+
+.slide-in-from-bottom-4 {
+  animation-name: slide-in-from-bottom;
+}
+
+.fade-in {
+  animation-name: fade-in;
+}
+
+.animate-pulse-subtle {
+  animation: pulse-subtle 2s ease-in-out infinite;
+}
+
+/**
+ * Focus ring styles for accessibility
+ * Provides visible focus indicators for keyboard navigation
+ * Requirements: 7.7
+ */
+.focus-ring {
+  @apply focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-bg-primary;
+}
+
+.focus-ring-card {
+  @apply focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-bg-card;
+}
+
+/**
+ * Interactive element base styles
+ * Provides consistent hover and active states
+ * Requirements: 7.7, 7.10
+ */
+@layer components {
+  /* Primary button with gradient */
+  .btn-primary {
+    @apply px-6 py-3 bg-gradient-primary text-white font-medium rounded-card
+           transition-all duration-200 ease-out
+           hover:scale-[1.02] hover:shadow-lg hover:shadow-primary/25
+           active:scale-[0.98]
+           focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-bg-primary
+           disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:hover:shadow-none;
+  }
+
+  /* Secondary button with border */
+  .btn-secondary {
+    @apply px-6 py-3 bg-bg-card text-text-primary font-medium rounded-card
+           border border-text-muted/20
+           transition-all duration-200 ease-out
+           hover:bg-bg-secondary hover:border-primary/30
+           active:scale-[0.98]
+           focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-bg-primary
+           disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-bg-card disabled:hover:border-text-muted/20;
+  }
+
+  /* Ghost button for subtle actions */
+  .btn-ghost {
+    @apply px-4 py-2 text-text-secondary rounded-lg
+           transition-all duration-200 ease-out
+           hover:bg-bg-secondary hover:text-text-primary
+           active:scale-[0.98]
+           focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-bg-primary;
+  }
+
+  /* Card with hover effect */
+  .card-interactive {
+    @apply bg-bg-card rounded-card border border-text-muted/10
+           transition-all duration-200 ease-out
+           hover:border-primary/30 hover:shadow-lg hover:shadow-primary/5;
+  }
+
+  /* Input field with focus states */
+  .input-field {
+    @apply w-full px-4 py-3 bg-bg-secondary rounded-lg
+           text-text-primary placeholder-text-muted
+           border border-text-muted/10
+           transition-all duration-200 ease-out
+           hover:border-text-muted/30
+           focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  /* Input field with error state */
+  .input-error {
+    @apply border-error focus:ring-error;
+  }
+
+  /* Link with hover effect */
+  .link-primary {
+    @apply text-primary transition-colors duration-200
+           hover:text-primary-light
+           focus:outline-none focus:underline;
+  }
+
+  /* Icon button */
+  .btn-icon {
+    @apply p-2 rounded-lg
+           transition-all duration-200 ease-out
+           hover:bg-bg-secondary
+           active:scale-95
+           focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-bg-card;
+  }
+}
+
+/**
+ * Smooth scrollbar styling
+ */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--text-muted);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
+}
