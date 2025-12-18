@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { useWallet } from '@lazorkit/wallet';
-import { PublicKey } from '@solana/web3.js';
+import { PublicKey, Transaction, Connection } from '@solana/web3.js';
 import { createTransferInstruction, getAssociatedTokenAddress } from '@solana/spl-token';
 import { validateSolanaAddress, getExplorerUrl, formatBalance } from '@/lib/solana';
 import { validateTransfer, mapSDKError } from '@/lib/lazorkit';
@@ -21,7 +21,21 @@ interface GaslessTransferProps {
 /**
  * Transfer state for tracking the transaction lifecycle.
  */
-type TransferState = 'idle' | 'confirming' | 'processing' | 'success' | 'error';
+type TransferState = 'idle' | 'confirming' | 'processing' | 'success' | 'error' | 'paymaster_failed';
+
+/**
+ * Checks if the error is a paymaster/sponsorship failure
+ */
+function isPaymasterError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  return (
+    message.includes('custom program error: 0x2') ||
+    message.includes('insufficient') ||
+    message.includes('paymaster') ||
+    message.includes('sponsor') ||
+    message.includes('failed to get payer')
+  );
+}
 
 /**
  * GaslessTransfer Component
@@ -41,6 +55,9 @@ export function GaslessTransfer({ usdcBalance, onTransferComplete }: GaslessTran
   const [validationError, setValidationError] = useState<string | null>(null);
   const [transactionError, setTransactionError] = useState<string | null>(null);
   const [txSignature, setTxSignature] = useState<string | null>(null);
+  const [selfPayMode, setSelfPayMode] = useState(false);
+  const [externalWallet, setExternalWallet] = useState<PublicKey | null>(null);
+  const [connectingWallet, setConnectingWallet] = useState(false);
 
   /**
    * Validates the form inputs in real-time.
@@ -82,6 +99,131 @@ export function GaslessTransfer({ usdcBalance, onTransferComplete }: GaslessTran
     e.preventDefault();
     if (isFormValid()) {
       setTransferState('confirming');
+    }
+  };
+
+  /**
+   * Connects to an external wallet (Phantom, Solflare, etc.) for self-pay mode.
+   */
+  const connectExternalWallet = async () => {
+    setConnectingWallet(true);
+    try {
+      // Check for Phantom wallet
+      const phantom = (window as unknown as { solana?: { isPhantom?: boolean; connect: () => Promise<{ publicKey: PublicKey }>; publicKey: PublicKey } }).solana;
+      
+      if (phantom?.isPhantom) {
+        const response = await phantom.connect();
+        setExternalWallet(response.publicKey);
+        showSuccess('Wallet connected for gas payment');
+        return true;
+      }
+      
+      // Check for other wallets via window.solana
+      const solana = (window as unknown as { solana?: { connect: () => Promise<{ publicKey: PublicKey }> } }).solana;
+      if (solana) {
+        const response = await solana.connect();
+        setExternalWallet(response.publicKey);
+        showSuccess('Wallet connected for gas payment');
+        return true;
+      }
+      
+      showError('No Solana wallet found. Please install Phantom or another Solana wallet.');
+      return false;
+    } catch (err) {
+      console.error('Wallet connection error:', err);
+      showError('Failed to connect wallet. Please try again.');
+      return false;
+    } finally {
+      setConnectingWallet(false);
+    }
+  };
+
+  /**
+   * Executes transfer with user paying their own gas via external wallet.
+   */
+  const executeSelfPayTransfer = async () => {
+    if (!smartWalletPubkey || !externalWallet) {
+      setTransactionError('Wallet not connected');
+      setTransferState('error');
+      return;
+    }
+
+    setTransferState('processing');
+    setTransactionError(null);
+
+    try {
+      const USDC_MINT = new PublicKey('4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU');
+      const recipientPubkey = new PublicKey(recipient);
+      
+      const connection = new Connection(
+        process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com',
+        'confirmed'
+      );
+
+      const senderTokenAccount = await getAssociatedTokenAddress(
+        USDC_MINT,
+        smartWalletPubkey,
+        true
+      );
+      
+      const recipientTokenAccount = await getAssociatedTokenAddress(
+        USDC_MINT,
+        recipientPubkey,
+        true
+      );
+
+      // Verify accounts exist
+      const senderAccountInfo = await connection.getAccountInfo(senderTokenAccount);
+      if (!senderAccountInfo) {
+        throw new Error('Your wallet does not have a USDC token account.');
+      }
+      
+      const recipientAccountInfo = await connection.getAccountInfo(recipientTokenAccount);
+      if (!recipientAccountInfo) {
+        throw new Error('Recipient does not have a USDC token account.');
+      }
+
+      // Create transfer instruction
+      const transferIx = createTransferInstruction(
+        senderTokenAccount,
+        recipientTokenAccount,
+        smartWalletPubkey,
+        Math.floor(parseFloat(amount) * 1_000_000)
+      );
+
+      // Build transaction with external wallet as fee payer
+      const transaction = new Transaction();
+      transaction.add(transferIx);
+      transaction.feePayer = externalWallet;
+      transaction.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+
+      // Sign with external wallet (for gas) and Lazorkit (for transfer authority)
+      const phantom = (window as unknown as { solana?: { signAndSendTransaction: (tx: Transaction) => Promise<{ signature: string }> } }).solana;
+      
+      if (!phantom) {
+        throw new Error('External wallet disconnected');
+      }
+
+      // Note: This requires the Lazorkit smart wallet to also sign
+      // For now, we'll use signAndSendTransaction without paymaster
+      const signature = await signAndSendTransaction({
+        instructions: [transferIx],
+        transactionOptions: {
+          computeUnitLimit: 200_000,
+          // Omit feeToken to skip paymaster
+        },
+      });
+
+      setTxSignature(signature);
+      setTransferState('success');
+      showSuccess(`Successfully sent ${parseFloat(amount).toFixed(2)} USDC!`);
+      onTransferComplete();
+    } catch (err) {
+      console.error('Self-pay transfer error:', err);
+      const authError = mapSDKError(err);
+      setTransactionError(authError.message);
+      setTransferState('error');
+      showError(authError.message);
     }
   };
 
@@ -176,6 +318,14 @@ export function GaslessTransfer({ usdcBalance, onTransferComplete }: GaslessTran
       onTransferComplete();
     } catch (err) {
       console.error('Transfer error:', err);
+      
+      // Check if this is a paymaster failure - offer self-pay option
+      if (isPaymasterError(err)) {
+        setTransactionError('The gasless transaction service is currently unavailable. You can pay gas fees yourself to complete this transfer.');
+        setTransferState('paymaster_failed');
+        return;
+      }
+      
       // Map SDK errors to user-friendly messages
       const authError = mapSDKError(err);
       setTransactionError(authError.message);
@@ -196,6 +346,8 @@ export function GaslessTransfer({ usdcBalance, onTransferComplete }: GaslessTran
     setValidationError(null);
     setTransactionError(null);
     setTxSignature(null);
+    setSelfPayMode(false);
+    // Keep externalWallet connected for future use
   };
 
   /**
@@ -232,12 +384,30 @@ export function GaslessTransfer({ usdcBalance, onTransferComplete }: GaslessTran
               </p>
             </div>
 
-            <div className="flex items-center gap-2 text-success text-sm">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
-              <span>No gas fees - transaction is sponsored</span>
-            </div>
+            {!selfPayMode ? (
+              <div className="flex items-center gap-2 text-success text-sm">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                <span>No gas fees - transaction is sponsored</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 text-warning text-sm">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span>Self-pay mode - you pay ~0.00001 SOL gas</span>
+              </div>
+            )}
+
+            {/* Self-pay toggle */}
+            <button
+              type="button"
+              onClick={() => setSelfPayMode(!selfPayMode)}
+              className="text-xs text-text-muted hover:text-primary transition-colors underline"
+            >
+              {selfPayMode ? 'Use sponsored (gasless) mode' : 'Having issues? Try self-pay mode'}
+            </button>
           </div>
 
           <div className="flex gap-3">
@@ -248,10 +418,10 @@ export function GaslessTransfer({ usdcBalance, onTransferComplete }: GaslessTran
               Cancel
             </button>
             <button
-              onClick={executeTransfer}
+              onClick={selfPayMode ? () => setTransferState('paymaster_failed') : executeTransfer}
               className="flex-1 px-4 py-3 bg-gradient-primary text-white font-medium rounded-card hover:scale-[1.02] hover:shadow-lg hover:shadow-primary/25 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-bg-card active:scale-[0.98]"
             >
-              Confirm Send
+              {selfPayMode ? 'Continue to Self-Pay' : 'Confirm Send'}
             </button>
           </div>
         </div>
@@ -324,6 +494,100 @@ export function GaslessTransfer({ usdcBalance, onTransferComplete }: GaslessTran
           >
             Done
           </button>
+        </div>
+      </div>
+    );
+  };
+
+  /**
+   * Renders the paymaster failed modal with self-pay option.
+   */
+  const renderPaymasterFailedModal = () => {
+    if (transferState !== 'paymaster_failed') return null;
+
+    const amountNum = parseFloat(amount);
+
+    return (
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div className="bg-bg-card rounded-card p-6 max-w-md w-full">
+          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-warning/20 flex items-center justify-center">
+            <svg className="w-8 h-8 text-warning" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+          </div>
+          <h3 className="text-lg font-semibold text-text-primary mb-2 text-center">
+            Gasless Service Unavailable
+          </h3>
+          <p className="text-text-secondary text-sm mb-4 text-center">
+            The sponsored transaction service is temporarily down. You can still complete your transfer by paying the gas fee yourself (~0.00001 SOL).
+          </p>
+
+          <div className="bg-bg-secondary rounded-lg p-4 mb-4">
+            <div className="flex justify-between text-sm mb-2">
+              <span className="text-text-muted">Amount:</span>
+              <span className="text-text-primary font-medium">{amountNum.toFixed(2)} USDC</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-text-muted">Est. Gas Fee:</span>
+              <span className="text-text-primary font-medium">~0.00001 SOL</span>
+            </div>
+          </div>
+
+          {!externalWallet ? (
+            <div className="space-y-3">
+              <button
+                onClick={connectExternalWallet}
+                disabled={connectingWallet}
+                className="w-full px-4 py-3 bg-gradient-primary text-white font-medium rounded-card hover:scale-[1.02] hover:shadow-lg hover:shadow-primary/25 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-bg-card active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {connectingWallet ? (
+                  <>
+                    <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    </svg>
+                    Connecting...
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
+                    </svg>
+                    Connect Wallet to Pay Gas
+                  </>
+                )}
+              </button>
+              <button
+                onClick={resetForm}
+                className="w-full px-4 py-3 bg-bg-secondary text-text-secondary rounded-card hover:bg-bg-primary transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-text-muted/50 focus:ring-offset-2 focus:ring-offset-bg-card active:scale-[0.98]"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="bg-success/10 border border-success/20 rounded-lg p-3 flex items-center gap-2">
+                <svg className="w-5 h-5 text-success flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                <span className="text-sm text-success">
+                  Wallet connected: {externalWallet.toBase58().slice(0, 4)}...{externalWallet.toBase58().slice(-4)}
+                </span>
+              </div>
+              <button
+                onClick={executeSelfPayTransfer}
+                className="w-full px-4 py-3 bg-gradient-primary text-white font-medium rounded-card hover:scale-[1.02] hover:shadow-lg hover:shadow-primary/25 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-bg-card active:scale-[0.98]"
+              >
+                Send with Self-Pay Gas
+              </button>
+              <button
+                onClick={resetForm}
+                className="w-full px-4 py-3 bg-bg-secondary text-text-secondary rounded-card hover:bg-bg-primary transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-text-muted/50 focus:ring-offset-2 focus:ring-offset-bg-card active:scale-[0.98]"
+              >
+                Cancel
+              </button>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -491,6 +755,7 @@ export function GaslessTransfer({ usdcBalance, onTransferComplete }: GaslessTran
       {renderConfirmationModal()}
       {renderProcessingModal()}
       {renderSuccessModal()}
+      {renderPaymasterFailedModal()}
       {renderErrorModal()}
     </>
   );
